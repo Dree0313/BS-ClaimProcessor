@@ -12,10 +12,10 @@ FILE-CONTROL.
 	*>Declares input file named CLAIM-FILE that physically maps to claims.csv
 	SELECT CLAIM-FILE ASSIGN TO "claims.csv"
 		*>Records are read top to bottom, no random access
-		ORGANIZATION IS SEQUENTIAL.
+		ORGANIZATION IS LINE SEQUENTIAL.
 	*>Declares output file name OUTPUT-FILE that physically maps to processed_claims.txt
 	SELECT OUTPUT-FILE ASSIGN TO "processed_claims.txt"
-		ORGANIZATION IS SEQUENTIAL.
+		ORGANIZATION IS LINE SEQUENTIAL.
 
 *>Where all data structures live, definitions
 DATA DIVISION.
@@ -26,11 +26,11 @@ FILE SECTION.
 FD CLAIM-FILE.
 
 *>Each line read from claims.csv, treated as raw text, 200 characters wide to be safe
-01 CLAIM-RECORD	PIC X(200).
+01 CLAIM-RECORD	PIC X(100).
 
 FD OUTPUT-FILE.
 *> One output line, built manually using STRING
-01 OUTPUT-RECORD	PIC X(200).
+01 OUTPUT-RECORD	PIC X(100).
 
 *>Program memory, variables live here, reset only when program restarts
 WORKING-STORAGE SECTION.
@@ -62,17 +62,34 @@ BEGIN.
 			*>Triggered when file ends, stops loop
 			AT END
 				MOVE "Y" TO EOF-FLAG
+				DISPLAY "EOF reached"
 			*>Normal record processing path
 			NOT AT END
+				INSPECT CLAIM-RECORD
+					REPLACING
+						ALL X"0D" BY SPACE
+						ALL X"0A" BY SPACE
+				DISPLAY "RAW LINE: [" CLAIM-RECORD "]"
 				*>Splits the line on tab characters (X'09' = tab)
-				UNSTRING CLAIM-RECORD DELIMITED BY X'09'
+				UNSTRING CLAIM-RECORD DELIMITED BY ','
 					*>Each column stored in respective variable
 					INTO WS-CLAIM-ID, WS-MEMBER-ID, WS-CLAIM-DATE, WS-CLAIM-AMOUNT-TEXT
 				END-UNSTRING
 				*>Converts text to number
 				COMPUTE WS-CLAIM-AMOUNT = FUNCTION NUMVAL(WS-CLAIM-AMOUNT-TEXT)
-				*> Calls a reusable paragraph
-				PERFORM PROCESS-RECORD
+				IF WS-CLAIM-AMOUNT > 10000
+					MOVE "REJECTED" TO WS-REASON
+				ELSE
+					MOVE "APPROVED" TO WS-REASON
+				END-IF
+				MOVE SPACES TO OUTPUT-RECORD
+
+				STRING WS-CLAIM-ID DELIMITED BY SIZE
+					" - " DELIMITED BY SIZE
+					WS-REASON DELIMITED BY SIZE
+					INTO OUTPUT-RECORD
+				END-STRING
+				WRITE OUTPUT-RECORD
 		*>Closes READ
 		END-READ
 	*>Closes loop
